@@ -34,6 +34,17 @@ in evidence.
     └── results/             # outputs produced by analysis scripts
 ```
 
+## Example run (CIFAR-10 testbed)
+
+10 experiments, 6 kept improvements. Baseline SmallCNN + SGD → 3-block BN-CNN + AdamW + cosine LR: **0.544 → 0.670 val_acc**.
+
+Every change in this run was grounded in prior analysis — BatchNorm was chosen because
+the first conv layer received only 3.3% of the gradient signal; the cosine schedule
+was chosen because a consistent epoch-3 val_acc dip pointed to large mid-training LR
+updates destabilising learned representations.
+
+![Autoresearch progress](../../assets/standardMLAutoresearch_progress.png)
+
 ## Files
 
 | File | Role |
