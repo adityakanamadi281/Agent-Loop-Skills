@@ -1,9 +1,8 @@
 # Example bindings for the karpathy loop.
-# Copy this to loop.run.yaml and fill in your values, or let the loop ask you
-# interactively on first run.
+# The loop writes a filled-in copy of this to <sandbox_root>/loop.run.yaml at setup time.
+# You can also fill this in manually and point the loop at it to skip the interactive questions.
 
 metric: val_loss            # scalar to minimize; must appear in training output
-metric_grep: "^val_loss:"   # grep pattern to extract it from the log (optional)
 
 run_cmd: "uv run train.py"  # full shell command to launch one training run
 entrypoint: "uv run train.py"  # same as run_cmd unless you need a separate launcher

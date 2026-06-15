@@ -28,8 +28,9 @@ proceeding; do not start the loop until every binding is confirmed.
 Ask the user:
 > "What scalar metric should I minimize? (e.g. `val_loss`, `val_bpb`, `error_rate`)"
 
-Confirm how to read it from the training output — grep pattern, JSON key, or last
-stdout line. Record as **`<metric>`**.
+Record as **`<metric>`**. The loop will infer the grep pattern automatically by trying
+`^<metric>:` first; if that returns nothing after the first run, scan the last 20 lines
+of the log to find where the value is printed and lock in the correct pattern.
 
 ### 1b. What Python environment should be used?
 
@@ -50,7 +51,11 @@ Ask the user:
 > "Which files may I edit? List them. (Typical answer: just `train.py`, or a set of
 >  model/config files.)"
 
-Record as **`<editable_files>`**. Every other file is read-only.
+Record as **`<editable_files>`**.
+
+**IMPORTANT — file edit guard**: Before touching any file at any point in this
+session — setup or loop — verify it appears in `<editable_files>`. If it does not,
+do not edit it under any circumstances. Every other file is read-only.
 
 ### 1d. What is the training entrypoint?
 
@@ -58,8 +63,8 @@ Ask the user:
 > "What command starts a single training run? Is it the same as your run command,
 >  or a separate script?"
 
-Confirm the full shell string. This becomes the body of step 4 of the loop.
-Record as **`<entrypoint>`** (often the same as `<run_cmd>`).
+Confirm the full shell string. Record as **`<entrypoint>`** (often the same as
+`<run_cmd>`).
 
 ### 1e. Where should the sandbox live?
 
@@ -85,13 +90,13 @@ Record as **`<iter_strategy>`** = `branches` or `snapshots`.
 **If `branches`**: propose a run tag based on today's date (e.g. `jun14`). The branch
 `autoresearch/<tag>` must not already exist. Create it: `git checkout -b autoresearch/<tag>`.
 
-**If `snapshots`**: initialise the sandbox layout now:
+**If `snapshots`**: initialise the sandbox layout now —
 
 ```
 <sandbox_root>/
-├── results.tsv          # append-only log (TSV, see §3)
+├── results.tsv          # append-only run log
 └── iter1/
-    └── code_snapshot/   # copies of every <editable_file> as-of that iteration
+    └── code_snapshot/   # copies of every <editable_file> before this iteration
 ```
 
 Subsequent iterations add `iter2/`, `iter3/`, … alongside `results.tsv`.
@@ -105,50 +110,68 @@ Ask the user:
 Record as **`<gate>`** = `time` or `epochs`.
 
 **If `time`**:
-- Ask: "How many minutes per run?"
-- Record as **`<budget_minutes>`**.
+- Ask: "How many minutes per run?" → record as **`<budget_minutes>`**.
 - Before the first run, verify that `<entrypoint>` honours a time budget. If it does
-  not already stop after `<budget_minutes>` minutes, inject a wrapper:
+  not already stop after `<budget_minutes>` minutes, write the following wrapper to
+  `<sandbox_root>/run_with_timeout.sh` (this file lives in the sandbox, not in any
+  source directory):
 
-  ```python
-  # auto-injected time-budget wrapper — written to <sandbox_root>/run_with_timeout.sh
+  ```bash
   #!/usr/bin/env bash
   timeout $(( <budget_minutes> * 60 )) <entrypoint> "$@"
   ```
 
-  Use `<sandbox_root>/run_with_timeout.sh` as the effective run command for this loop.
-  Set a hard kill timeout at `2 × <budget_minutes>` minutes — if a run exceeds it,
-  kill it and treat it as a crash.
+  Use `<sandbox_root>/run_with_timeout.sh` as the effective run command for the loop.
+  Hard kill threshold: `2 × <budget_minutes>` minutes — if a run exceeds it, kill and
+  treat as a crash.
 
 **If `epochs`**:
-- Ask: "How many epochs per run?"
-- Record as **`<budget_epochs>`**.
+- Ask: "How many epochs per run?" → record as **`<budget_epochs>`**.
 - Verify that `<entrypoint>` (or a config it reads) accepts an epoch count. If needed,
-  patch `<entrypoint>` (or the appropriate config file, if it is in `<editable_files>`)
-  to cap training at `<budget_epochs>` epochs before the first run.
+  patch whichever file in `<editable_files>` controls epochs to cap at `<budget_epochs>`
+  before the first run. Do not touch any file outside `<editable_files>` to do this.
 
 ### 1h. Read in-scope files
 
-Read every file in `<editable_files>` now for full context. Note the current metric
-value (if any) so the baseline run has something to compare against.
+Read every file in `<editable_files>` now for full context before the first run.
 
 ### 1i. Initialise results.tsv
 
-Create `<sandbox_root>/results.tsv` with the header row only:
+Create `<sandbox_root>/results.tsv` with just the header row (tab-separated — do NOT
+use commas, they break in description text):
 
+**snapshots mode**:
 ```
 iter	<metric>	status	description
 ```
 
-(Tab-separated. Do not use commas — they break in description text.)
-
-For `branches` mode, add a `commit` column after `iter`:
-
+**branches mode**:
 ```
 commit	<metric>	status	description
 ```
 
-### 1j. Confirm and go
+Do not commit `results.tsv` to git — leave it untracked.
+
+### 1j. Write resolved bindings to the sandbox
+
+Write all resolved bindings to **`<sandbox_root>/loop.run.yaml`** so the run is
+reproducible. Example shape (substitute real values):
+
+```yaml
+metric: val_loss
+run_cmd: "uv run train.py"
+entrypoint: "uv run train.py"
+editable_files:
+  - train.py
+sandbox_root: /path/to/sandbox
+iter_strategy: snapshots   # or: branches
+run_tag: jun14             # branches mode only
+gate: time
+budget_minutes: 5          # time mode
+# budget_epochs: 10        # epochs mode
+```
+
+### 1k. Confirm and go
 
 Print a summary of all resolved bindings and ask the user to confirm. Once confirmed,
 begin the experiment loop immediately.
@@ -157,104 +180,145 @@ begin the experiment loop immediately.
 
 ## 2. The experiment loop
 
-**NEVER STOP** once the loop has begun. Do not ask "should I continue?", do not pause
-between iterations, do not wait for permission. The human may be asleep. Run until
-manually interrupted.
+**Everything in `<editable_files>` is fair game**: change the architecture, the
+optimizer, the hyperparameters, the batch size, the model size. The only constraint is
+that the code runs without crashing and finishes within the budget. Everything else is
+up to you.
 
-Each iteration follows this sequence:
+**VRAM / memory** is a soft constraint. Some increase is acceptable for meaningful
+`<metric>` gains, but it should not blow up dramatically.
 
-### Step 1 — Snapshot current state (snapshots mode only)
+**Simplicity criterion**: All else being equal, simpler is better. A small improvement
+that adds ugly complexity is not worth it. Conversely, removing something and getting
+equal or better results is a great outcome — that's a simplification win. When
+evaluating whether to keep a change, weigh the complexity cost against the improvement
+magnitude. A 0.001 improvement that adds 20 lines of hacky code? Probably not worth it.
+A 0.001 improvement from *deleting* code? Definitely keep. An improvement of ~0 but
+much simpler code? Keep.
 
-In `snapshots` mode, before touching any file, copy every file in `<editable_files>`
-into `<sandbox_root>/iter<N>/code_snapshot/`, preserving relative paths.
+**The first run**: Your very first run should always be to establish the baseline — run
+the training script as-is, without any changes.
 
-In `branches` mode, note the current git commit hash (short, 7 chars).
+**FILE EDIT GUARD**: Before editing *any* file at *any* step below, confirm the file is
+in `<editable_files>`. If it is not, do not edit it. No exceptions.
 
-### Step 2 — Propose and apply a change
+---
 
-The **first** run is always the unmodified baseline — run `<entrypoint>` without
-changing anything.
+### LOOP FOREVER:
 
-For every subsequent run, propose one focused experimental idea:
-- What to change and why.
-- Which file(s) in `<editable_files>` you are editing.
+**1. Look at the git/sandbox state.**
 
-Apply the change directly to the files. Keep it focused — one idea per iteration.
+- *branches mode*: run `git log --oneline -5` and note the current branch and commit
+  hash (short, 7 chars).
+- *snapshots mode*: note the current iteration number N and confirm
+  `<sandbox_root>/iter<N>/` does not already exist.
 
-**Simplicity criterion**: all else being equal, simpler is better. A marginal gain
-that adds ugly complexity is not worth keeping. Removing code and matching or beating
-the baseline is a win.
+**2. Tune `<editable_files>` with an experimental idea by directly hacking the code.**
 
-In `branches` mode: `git commit -am "<short description of idea>"` after editing.
+For the very first run, skip this — run the script unmodified to establish the
+baseline.
 
-### Step 3 — Run the experiment
+For every subsequent run, pick one focused experimental idea (what to try and why),
+then edit the relevant file(s) in `<editable_files>`. Keep changes focused — one idea
+per iteration.
+
+- *snapshots mode*: before editing anything, copy every file in `<editable_files>` into
+  `<sandbox_root>/iter<N>/code_snapshot/`, preserving relative paths. Then apply your
+  changes to the working files.
+
+**3. Commit (branches mode) / snapshot already taken (snapshots mode).**
+
+- *branches mode*: `git commit -am "<short description of idea>"`
+- *snapshots mode*: snapshot was taken in step 2; nothing extra to do here.
+
+**4. Run the experiment — redirect everything, do NOT use `tee` or let output flood your context.**
 
 ```bash
 # time-gated
 <sandbox_root>/run_with_timeout.sh > <sandbox_root>/iter<N>/run.log 2>&1
 
-# epoch-gated (no wrapper needed)
+# epoch-gated
 <entrypoint> > <sandbox_root>/iter<N>/run.log 2>&1
 ```
 
-Redirect everything. Do not let output flood your context.
+Hard timeout: if the run exceeds `2 × <budget_minutes>` minutes (time gate) or does
+not terminate after `<budget_epochs>` epochs + reasonable overhead (epoch gate), kill it
+and treat it as a crash. Each experiment should take roughly `<budget_minutes>` minutes
+total (plus a few seconds of startup/eval overhead). If a run exceeds double that, kill
+it and treat it as a failure — discard and revert.
 
-Hard limits:
-- **Time gate**: if the run exceeds `2 × <budget_minutes>` minutes, kill it → crash.
-- **Epoch gate**: if the run does not terminate after `<budget_epochs>` epochs +
-  reasonable overhead, kill it → crash.
+**5. Read out the results.**
 
-### Step 4 — Read the result
-
-Extract `<metric>` from the log using whatever grep/parse pattern was agreed in §1a.
-
-If the output is empty → the run crashed. Read the last 50 lines of `run.log` and
-attempt a fix. If the fix is trivial (typo, missing import), fix and re-run **once**.
-If the idea is fundamentally broken, log it as `crash` and move on.
-
-### Step 5 — Log to results.tsv
-
-Append one row to `<sandbox_root>/results.tsv` (tab-separated):
-
-**snapshots mode**:
-```
-<N>	<metric_value>	<status>	<short description>
+```bash
+grep '^<metric>:' <sandbox_root>/iter<N>/run.log
 ```
 
-**branches mode**:
+If that returns nothing, scan `tail -n 20 run.log` to find where the value is printed
+and use that pattern going forward.
+
+**6. If the grep output is empty, the run crashed.**
+
+```bash
+tail -n 50 <sandbox_root>/iter<N>/run.log
 ```
-<commit>	<metric_value>	<status>	<short description>
-```
 
-`<status>` is one of: `keep`, `discard`, `crash`.
+Read the Python stack trace and attempt a fix. Use your judgement:
+- If it's something dumb and easy to fix (a typo, a missing import), fix it — edit only
+  files in `<editable_files>` — and re-run once. Do not re-run more than a few times.
+- If the idea itself is fundamentally broken, skip it, log `crash` in the TSV, and
+  move on.
 
-Use `0.000000` for `<metric_value>` on crashes.
+**7. Record the results in `results.tsv`. Do NOT commit this file — leave it untracked.**
 
-Do not commit `results.tsv` to git (leave it untracked).
+Append one tab-separated row:
 
-### Step 6 — Keep or revert
+- *snapshots mode*: `<N>  <metric_value>  <status>  <short description>`
+- *branches mode*: `<commit>  <metric_value>  <status>  <short description>`
 
-**If `<metric>` improved** (lower than the current best):
-- Status → `keep`. Update the current-best record.
-- In `branches` mode: stay on this commit (the branch advances).
-- In `snapshots` mode: the code files remain as-is.
+`<status>` ∈ {`keep`, `discard`, `crash`}. Use `0.000000` for the metric on crashes.
 
-**If `<metric>` did not improve** (equal or worse, or crash):
-- Status → `discard` (or `crash`).
-- In `branches` mode: `git reset --hard HEAD~1` to revert the commit.
-- In `snapshots` mode: restore every `<editable_file>` from
-  `<sandbox_root>/iter<N>/code_snapshot/` back to the working directory.
+**8. Keep or revert.**
 
-### Step 7 — Repeat
+- **If `<metric>` improved** (lower is better — lower than the current best):
+  - Status → `keep`. Update your current-best record.
+  - *branches mode*: stay on this commit — the branch advances.
+  - *snapshots mode*: leave the working files as-is.
 
-Go to Step 1 for iteration N+1. If you are running out of ideas:
-- Re-read the in-scope files for angles you missed.
-- Try combining two near-misses from `results.tsv`.
-- Try a more radical architectural change.
-- Recall that the simplicity criterion means *deleting* something and staying equal
-  is a valid win.
+- **If `<metric>` is equal or worse** (or a crash):
+  - Status → `discard` (or `crash`).
+  - *branches mode*: `git reset --hard HEAD~1` to revert.
+  - *snapshots mode*: restore every file in `<editable_files>` from
+    `<sandbox_root>/iter<N>/code_snapshot/` back to the working directory.
 
-Never stop. The loop runs until the human interrupts you, period.
+  The idea is that you are a completely autonomous researcher trying things out. If they
+  work, keep. If they don't, discard. You advance by keeping good commits / snapshots
+  and reverting bad ones. If you feel stuck, you can rewind further, but do this very
+  sparingly (if ever).
+
+**→ Go back to step 1 for iteration N+1.**
+
+---
+
+**Timeouts**: each experiment should take roughly `<budget_minutes>` minutes (+ a few
+seconds for startup and eval overhead). If a run exceeds `2 × <budget_minutes>` minutes,
+kill it and treat it as a failure (discard and revert).
+
+**Crashes**: if a run crashes (OOM, a bug, etc.), use your judgement. If it's something
+dumb and easy to fix (a typo, a missing import), fix it and re-run. If the idea itself
+is fundamentally broken, just skip it, log `crash`, and move on.
+
+**NEVER STOP**: Once the experiment loop has begun (after setup), do NOT pause to ask
+the human if you should continue. Do NOT ask "should I keep going?" or "is this a good
+stopping point?". The human might be asleep, or away from their computer, and expects
+you to continue working **indefinitely** until manually stopped. You are autonomous. If
+you run out of ideas, think harder — re-read the in-scope files for new angles, try
+combining previous near-misses from `results.tsv`, try more radical architectural
+changes. The loop runs until the human interrupts you, period.
+
+As an example use case, a user might leave you running while they sleep. If each
+experiment takes `<budget_minutes>` minutes, you can run ~`60/<budget_minutes>` per
+hour — roughly 100 experiments over a typical night. The user wakes up to a full
+`results.tsv` of completed experiments.
 
 ---
 
@@ -262,7 +326,7 @@ Never stop. The loop runs until the human interrupts you, period.
 
 Tab-separated. Never use commas in descriptions.
 
-**snapshots mode** (header + example rows):
+**snapshots mode**:
 ```
 iter	<metric>	status	description
 1	0.997900	keep	baseline
@@ -284,9 +348,12 @@ d4e5f6g	0.000000	crash	double model width (OOM)
 
 ## 4. Hard constraints (never violate)
 
-- Only edit files in `<editable_files>`. Everything else is read-only.
-- Do not install new packages or add dependencies not already present.
-- Do not modify the evaluation harness — the metric is the ground truth.
+- **Only edit files in `<editable_files>`.** Before touching any file, confirm it is in
+  this list. Everything else is read-only — no exceptions.
+- Do not install new packages or add dependencies not already present in the project.
+- Do not modify the evaluation harness — `<metric>` is the ground truth.
 - Do not pause the loop to ask the human for direction.
-- Do not let training output flood your context — always redirect to a log file.
-- The sandbox (`<sandbox_root>/`) must be fully self-contained; no `../` escapes.
+- Always redirect training output to `run.log`. Never use `tee`. Never let output flood
+  your context.
+- The sandbox (`<sandbox_root>/`) must be fully self-contained — no `../` path escapes.
+- Do not commit `results.tsv` to git. Leave it untracked.
