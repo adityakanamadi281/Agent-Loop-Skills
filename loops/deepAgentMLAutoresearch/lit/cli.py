@@ -5,9 +5,10 @@ so the agent degrades to its built-in WebSearch / WebFetch.
 
 import argparse
 import json
+import os
 import sys
 
-from . import http
+from . import http, keys
 from .normalize import dedupe
 from .sources import arxiv, bgpt, openalex as oa, semantic_scholar as s2, sonar
 
@@ -68,10 +69,20 @@ def _bgpt(a):
     _emit(bgpt.search(a.query, a.num, a.days_back or None))
 
 
+def _keys(a):
+    path = a.env_file or keys.default_env_path()
+    if a.init:
+        keys.ensure_template(path)
+    _emit({"env_file": path, "present": keys.status()})
+
+
 def _build_parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--cache-dir", default=None,
                         help="on-disk cache dir (recommended: <sandbox>/literature/.cache)")
+    common.add_argument("--env-file", default=None,
+                        help="key file to load (default: the shared global "
+                             "~/.config/agent-loop-skills/keys.env)")
 
     p = argparse.ArgumentParser(
         prog="lit_search",
@@ -125,11 +136,18 @@ def _build_parser():
     sp.add_argument("--days-back", type=int, default=0)
     sp.set_defaults(func=_bgpt)
 
+    sp = sub.add_parser("keys", parents=[common],
+                        help="report which API keys are present (booleans only)")
+    sp.add_argument("--init", action="store_true",
+                    help="write a placeholder keys.env at --env-file if missing")
+    sp.set_defaults(func=_keys)
+
     return p
 
 
 def main(argv=None):
     args = _build_parser().parse_args(argv)
+    keys.load_env_file(args.env_file)
     http.configure(cache_dir=args.cache_dir)
     try:
         args.func(args)
