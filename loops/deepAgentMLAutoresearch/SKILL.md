@@ -13,16 +13,23 @@ metadata:
 
 # Deep-Agent ML Autoresearch Loop
 
-This loop is **analysis-first and literature-grounded**. Every experiment is followed
-by a diagnostic pass (as in `standardMLAutoresearch`), and then by a **literature
-review**: the analysis findings become questions, the questions drive a paper search,
-and the next change is whatever the evidence most supports. Changes are hypotheses
-grounded in both your own diagnostics *and* prior work — not guesses, and not
-reinventing published techniques.
+This loop is **literature-grounded and analysis-first**. Each iteration **plans a single
+change** — grounded in the previous run's diagnostics *and* a targeted search of the
+literature — then runs it, then analyses the result to motivate the next plan. Changes
+are hypotheses backed by both your own evidence and prior work: not guesses, and not
+reinventing published techniques. **One change per run**, so the metric move is
+attributable to it.
+
+**Assume your knowledge of specific library APIs and current methods is out of date.**
+When a change implements a published technique, ground the *implementation* in a real
+current example or the actual library in the repo — read it first; do not write it from
+memory. Implementing from memory produces wrong imports and wrong argument names.
 
 The literature search is the bottleneck, so it is built to be cheap: a self-contained
 helper (`lit_search.py`, stdlib-only) with an on-disk cache, a triage-before-read
-funnel, and parallel research subagents that each return a strict recipe schema.
+funnel, parallel research subagents that each return a strict recipe schema, and a
+**backlog** (`corpus.tsv`) of vetted findings reused across iterations instead of
+re-researched.
 
 You are the researcher. Do not pause to ask for permission once the loop is running.
 
@@ -44,8 +51,8 @@ and reuse them everywhere:
   <lit_py> <skill_dir>/lit_search.py --cache-dir <sandbox_root>/literature/.cache
   ```
 
-  API keys load automatically from the shared global file
-  `~/.config/agent-loop-skills/keys.env` (see §1j); you do not pass `--env-file`.
+  API keys load automatically from `keys.env` at the project root (see §1j); you do not
+  pass `--env-file`.
 
 Subcommands (all print JSON; on failure print `{"error","fallback"}` and exit non-zero
 — when that happens, fall back to your built-in WebSearch / WebFetch):
@@ -240,22 +247,24 @@ If this fails, stop and report it — the loop cannot ground itself without the 
 
 ---
 
-### 1j. API keys (shared global file; you fill it yourself, secrets never enter chat)
+### 1j. API keys (project-root file; you fill it yourself, secrets never enter chat)
 
-Keys live in ONE shared file reused by every skill and project:
-`~/.config/agent-loop-skills/keys.env` (honoring `$XDG_CONFIG_HOME`). It is outside any
-repo, so it can't be committed. All keys are **optional** — missing ones degrade
+Keys live in one `keys.env` at the **project root** (the nearest `.git` ancestor of the
+working dir), shared by every skill in the project. It sits inside the repo, so it
+**must be gitignored** — before writing it, ensure `keys.env` is in the project's
+`.gitignore` (add the line if missing). All keys are **optional** — missing ones degrade
 gracefully — but **Semantic Scholar's keyless pool is a saturated global limit**, so a
 free `S2_API_KEY` is strongly recommended. (See `docs/api-keys.md` for the standard.)
 
-1. **Check what's already there** (the global file may already be populated from a prior
-   setup or another skill):
+1. **Check what's already there** (the file may already be populated from a prior setup
+   or another skill in this project):
    ```bash
    <lit> keys
    ```
    If S2 (and whatever else you need) is already present, skip to step 4.
-2. **Ensure the file has slots** for this skill's keys (creates the file if missing;
-   appends only missing keys — never clobbers existing ones):
+2. **Ensure `keys.env` is gitignored**, then **ensure it has slots** for this skill's
+   keys (creates the file at the project root if missing; appends only missing keys —
+   never clobbers existing ones):
    ```bash
    <lit_py> <skill_dir>/lit_search.py keys --init
    ```
@@ -265,16 +274,20 @@ free `S2_API_KEY` is strongly recommended. (See `docs/api-keys.md` for the stand
    - `OPENROUTER_API_KEY` — paid; enables `ask` (Perplexity Sonar) for Level-1 synthesis.
    - `BGPT_API_KEY` — free 50 results then paid; structured experimental evidence.
 3. **Ask the user to fill it themselves**, so secrets never enter this transcript:
-   > "Open `~/.config/agent-loop-skills/keys.env` in your editor, paste the keys you
-   >  want (S2 is free + recommended; the rest optional), and tell me when you're done."
+   > "Open `keys.env` (at the project root) in your editor, paste the keys you want
+   >  (S2 is free + recommended; the rest optional), and tell me when you're done."
 
-   The in-session shortcut `! $EDITOR ~/.config/agent-loop-skills/keys.env` opens it
-   without leaving the loop. Offer to fill it for them only if they explicitly prefer.
-4. **Verify and record.** Run `<lit> keys` — it prints a per-key note (booleans only,
-   never values): each key's `present` flag + what it gates, plus `live` and `missing`
-   lists. Report live vs degraded to the user, and **persist it** to `schema.yaml`
-   under `literature_tiers` so any later step can see it without re-checking. (`keys` is
-   network-free, so you can also re-run it anytime to refresh.) Do not block on keys.
+   The in-session shortcut `! $EDITOR ./keys.env` opens it without leaving the loop.
+   Offer to fill it for them only if they explicitly prefer.
+4. **Verify and record — verbosely.** Run `<lit> keys` — it prints a per-key note
+   (booleans only, never values): each key's `present` flag, a verbose `info` string
+   (cost · what it enables · consequence if missing · where to get it), and `live` /
+   `missing` lists. Report this back to the user **in full, key by key** — for each key
+   state present/absent, what capability it turns on, and exactly what is lost without
+   it (e.g. "BGPT_API_KEY missing → `bgpt` evidence extraction disabled after the free
+   tier; everything else unaffected"). Then **persist it** to `schema.yaml` under
+   `literature_tiers` so any later step can see it without re-checking. (`keys` is
+   network-free — re-run it anytime to refresh.) Do not block on keys.
 
 ---
 
@@ -293,8 +306,7 @@ Create the layout and write the schema/ledgers:
 │   └── text/            ← extracted LaTeX section text
 └── iter1/               ← created at loop start
 
-(API keys are NOT in the sandbox — they live in the shared global
-~/.config/agent-loop-skills/keys.env from §1j.)
+(API keys are NOT in the sandbox — they live in keys.env at the project root from §1j.)
 ```
 
 **`results.tsv` header** (tab-separated, no commas):
@@ -304,14 +316,16 @@ iter	<metric>	status	analysis_summary	literature_basis	description
 
 **`literature/corpus.tsv` header** (tab-separated):
 ```
-iter	level	paper_id	title	relevance	verdict	implemented	result
+iter	level	paper_id	title	scope	relevance	verdict	implemented	result
 ```
-- `level` ∈ {1, 2} · `relevance` ∈ {high, med, low} · `verdict` ∈ {keep, reject}
-- `implemented` ∈ {y, n} · `result` ∈ {helped, no-effect, hurt, pending}
+- `level` ∈ {1, 2} · `scope` = `agnostic` or an architecture tag (e.g. `cnn`, `vit`) —
+  drives drift retirement · `relevance` ∈ {high, med, low}
+- `verdict` ∈ {keep, reject} · `implemented` ∈ {y, n}
+- `result` ∈ {helped, no-effect, hurt, pending, stale} (`stale` = retired on drift/expiry)
 
 **`schema.yaml`**: write all resolved bindings, including `domain`, `research_scale`,
-`lit_py`, and which key tiers are live. (Keys themselves live in the global
-`~/.config/agent-loop-skills/keys.env`, never in the sandbox or schema.)
+`lit_py`, and which key tiers are live. (Keys themselves live in `keys.env` at the
+project root, never in the sandbox or schema.)
 
 ---
 
@@ -337,8 +351,13 @@ finishes within `<budget>`.
 lines of hacky code is not worth it; a 0.001 gain from *deleting* code is. Equal metric
 but simpler code is a `keep`.
 
-**The first run**: always run the script unmodified to establish the baseline (no
-literature review on iteration 1 — there are no findings to ground yet).
+**One change per iteration.** Plan and apply exactly one lever per run, so the metric
+move is attributable. Other vetted findings are *queued* in `corpus.tsv` and pulled in
+future iterations — not bundled into one run. (Decouple the axes, like `standard`/
+`highTemp`.)
+
+**The first run**: iteration 1 is the unmodified baseline — skip planning/research (no
+diagnostics to ground a change yet), just run and analyse.
 
 **FILE EDIT GUARD**: confirm any file is in `<editable_files>` before editing it.
 
@@ -346,109 +365,125 @@ literature review on iteration 1 — there are no findings to ground yet).
 
 ### LOOP FOREVER:
 
+Each iteration is a self-contained cycle: **plan one change → apply → run → analyse →
+keep/revert**. Research happens in the planning step (every iteration from 2 onward),
+grounded in the *previous* iteration's analysis (already on disk).
+
 **1. Look at the state.**
 - *branches*: `git log --oneline -5` — note current branch and commit hash.
 - *snapshots*: note iteration N; confirm `<sandbox_root>/iter<N>/` does not exist yet.
+- Read the previous iteration's analysis summary (`iter<N-1>/results/`) and skim
+  `corpus.tsv` for unimplemented keepers.
 
-**2. Run the experiment — redirect everything, never use `tee`.**
+**2. Plan the change (iteration 1: SKIP — run the unmodified baseline).**
+
+**The latest analysis sets the direction — it is the master input every iteration.**
+The backlog is a *re-validated cache*, never a queue to drain. Decide exactly **one**
+lever, grounded in iter N-1's analysis.
+
+**2a. Retire drift, then consult the backlog as a cache.**
+- **Drift retirement:** if the last kept change altered the architecture *family* (e.g.
+  CNN→transformer), retire the now-stale backlog — set `result=stale` for every
+  unimplemented keeper whose `scope` is a non-matching architecture tag. Architecture-
+  agnostic keepers (`scope=agnostic` — schedules, weight decay, augmentation, init
+  *philosophies*) survive.
+- **Cache lookup:** given the direction the analysis points to, check `corpus.tsv` for
+  an unimplemented `keep` finding that targets *that* direction. You may reuse it as the
+  lever **only if it still passes the gate (2c) against the CURRENT architecture** — re-
+  validate now; do not trust the as-of-discovery verdict. A finding that no longer
+  applies is retired (`result=stale`), not forced in. Reuse is a cost win only when it
+  genuinely still fits.
+
+**2b. Research the direction (the default every iteration).** Unless 2a yielded a
+still-valid, on-direction lever, research it. Generate questions from the analysis
+limitations *and* higher-level considerations (tie limitations to questions where you
+can), then dispatch **research subagents** (§3) at the dial's depth/effort (§1h). Record
+questions in `iter<N>/questions.md`.
+- **Level 1 — high-level** (architecture & prior art): does this architecture suit this
+  data type? how have others approached similar problems? is there prior literature
+  showing success? what are the common architectural families here? Research L1 first.
+- **Level 2 — specific** (micro-opts): init scheme, weight-decay dynamics, attention/
+  cache choice for the sequence length, normalization placement, schedule, etc.
+- If L1 surfaces a compelling new direction, that becomes the lever and L2 questions
+  *refine* it (in this or later iterations). If L1 yields nothing compelling, go to L2.
+
+> Anti-rut: a backlog keeper passed over for ~3 iterations without being chosen, or no
+> longer on any live direction, is retired (`result=stale`) so it stops resurfacing.
+> The analysis decides what matters now — not the age of the queue.
+
+**2c. Evidence gate (re-validated; consults history).** Keep or reuse a finding only if
+**all** hold:
+- `evidence.strength` is `moderate` or `strong` (not `weak`);
+- `applicability_to_our_setup` transfers to the **CURRENT** data/model/budget — re-
+  checked this iteration, not as of discovery;
+- every `files_to_edit` is within `<editable_files>` and it fits `<budget>`;
+- it is **not materially equivalent to a change already logged `no-effect`/`hurt`/
+  `crashed` in `corpus.tsv`** — unless the finding explains why it would differ now.
+
+Tag each kept finding's **`scope`**: `agnostic` if architecture-independent, else the
+current architecture tag (so drift retirement in 2a is mechanical). Record every finding
+in `corpus.tsv` (keep or reject); kept findings not chosen this iteration stay queued
+(`implemented=n`, `result=pending`).
+
+**2d. Choose the single lever and state the hypothesis.** From the keepers (backlog +
+new), pick the **one** highest-value change (strong evidence × clear applicability ×
+gain per unit of complexity). State explicitly:
+- the one change and which `<editable_files>` it touches;
+- the **empirical anchor** (file + value/pattern from iter N-1 `results/`);
+- the **literature basis** (the kept finding + citation(s)), or `none` if the change is
+  pure analysis-driven simplification/ablation;
+- the **verify-todo**: the metric/log/analysis that will tell whether it helped (from
+  the finding's `how_to_verify`) — checked in step 6.
+
+A non-simplification change needs an empirical anchor **or** a literature basis; prefer
+both.
+
+**3. Snapshot / commit, then apply the one change.**
+- *snapshots*: create `iter<N>/{code_snapshot,analysis,results}/`, copy every
+  `<editable_files>` into `code_snapshot/`, copy `schema.yaml` to `iter<N>/`, then apply
+  the change. *(Iteration 1: snapshot the unmodified baseline.)*
+- *branches*: apply the change, then `git commit -am "<short description>"`.
+
+When the change uses a technique/library feature, **ground the implementation in a real
+current example or the actual library** (read it) — don't write the API from memory.
+After applying, do a quick fail-fast check (it imports/parses) before spending a run.
+
+**4. Run the experiment — redirect everything, never use `tee`.**
 ```bash
 # time-gated
 <sandbox_root>/run_with_timeout.sh > <sandbox_root>/iter<N>/<run_log> 2>&1
 # epoch-gated
 <entrypoint> > <sandbox_root>/iter<N>/<run_log> 2>&1
 ```
-(For iteration 1 this is the unmodified baseline. For 2+, you have already applied the
-change decided at the end of the previous iteration.)
-
 If the run has not terminated when it should have, kill it and treat as a crash.
 
-**3. Read the metric.**
+**5. Read the metric.**
 ```bash
 grep '^<metric>:' <sandbox_root>/iter<N>/<run_log>
 ```
 If empty: `tail -n 50 <run_log>`, read the trace, attempt one trivial fix (typo,
 missing import). If fundamentally broken, log as `crash` and continue.
 
-**4. Analyse the results.** (Same diagnostic discipline as `standardMLAutoresearch`.)
+**6. Analyse the results.** (Same diagnostic discipline as `standardMLAutoresearch`.)
 
-Write analysis scripts to `<sandbox_root>/iter<N>/analysis/` and their outputs to
-`<sandbox_root>/iter<N>/results/`. Draw from: gradient diagnostics, activation
-analysis, embeddings, error/confusion analysis, loss dynamics, weight/parameter stats,
-data profiling, compute profiling — whatever explains *why* this result happened.
+Write analysis scripts to `iter<N>/analysis/` and outputs to `iter<N>/results/`. Draw
+from: gradient diagnostics, activation analysis, embeddings, error/confusion analysis,
+loss dynamics, weight/parameter stats, data profiling, compute profiling — whatever
+explains *why* this happened. **Audit the data itself** when relevant — looking at the
+data is one of the highest-yield diagnostics.
+
+**Check this iteration's verify-todo** (from 2d): did the change do what the literature
+predicted? Record the answer — it sets the finding's `result` in step 7.
 
 Write a concise **analysis summary** (3–8 bullets): what you examined, the most
-important finding (expected or not), and the specific empirical anchor (file + value/
-pattern) that will motivate the next change.
+important finding, and the specific empirical anchor (file + value/pattern) that will
+motivate the *next* iteration's plan.
 
 **Extend the training log if it would help future analysis.** If the script that
 produces the log/metrics is in `<editable_files>`, add diagnostics (per-layer grad
 norms, per-class metrics, train/val gap, best-epoch checkpoint). Richer logs compound.
 
-**5. LITERATURE REVIEW PHASE.** *(This is what makes this loop "deep". Run it every
-iteration from iteration 2 onward.)*
-
-**5a. Generate questions at two abstraction levels.** Derive questions from the
-analysis limitations *and* from higher-level considerations — don't draw them only from
-the limitations, but tie observed limitations to the questions where you can.
-
-- **Level 1 — high-level** (architecture & prior art): Does this architecture suit this
-  data type? How have people approached similar problems? Is there prior literature
-  showing success? What are the common architectural families for a problem of this
-  type? Decompose the problem into its high-level components and ask about each.
-- **Level 2 — specific** (micro-optimizations): optimal weight init for models like
-  this, weight-decay dynamics, KV-cache construction, attention choice given sequence
-  length, normalization placement, schedule, etc. — direct optimizations on the current
-  architecture.
-
-Generate `<questions/level>` per the scaling dial (§1h). Write them to
-`<sandbox_root>/iter<N>/questions.md`.
-
-**5b. Research Level 1 first.** For each L1 question, dispatch a **research subagent**
-(§3) at the dial's depth/effort. Collect their returned findings (validated against
-`literature_schema.json`).
-
-**5c. Apply the evidence gate to L1 findings.** Keep a finding only if **all** hold:
-- `evidence.strength` is `moderate` or `strong` (not `weak`);
-- `applicability_to_our_setup` genuinely transfers to this data/model/budget;
-- every `files_to_edit` is within `<editable_files>` and the change fits `<budget>`.
-
-Otherwise reject it. Record every finding in `corpus.tsv` (keep or reject).
-
-**5d. Implement L1 keepers, then go to Level 2.**
-- If there are L1 keepers: implement the highest-value one(s) this iteration, then ask
-  L2 questions that *refine* the chosen direction.
-- If there are **no** L1 keepers: skip straight to L2 (micro-optimizations on the
-  current architecture), exactly as you would when the high level is already settled.
-
-**5e. Research Level 2** the same way (subagents → findings → evidence gate → record).
-
-**5f. Compile and pick levers.** From all kept findings, select the **highest-value
-change(s)** for the next iteration — prefer strong evidence, clear applicability, and
-high expected gain per unit of complexity. For each selected lever, add a
-**verification todo**: the metric/log/analysis to add or watch next run to tell whether
-it actually helped (from the finding's `how_to_verify`). Add these to
-`<sandbox_root>/iter<N>/questions.md` under "Verify next run".
-
-> Cadence: the full review runs every iteration. If a `keep` is being *ablated* or
-> re-tested under a perturbation, a lighter review (or none) is fine — say so explicitly
-> in the hypothesis.
-
-**6. Form the grounded hypothesis.** State explicitly:
-- The change you will make and which `<editable_files>` it touches.
-- **The empirical anchor** (file + value/pattern from `results/`) — as in `standard`.
-- **The literature basis** — the kept finding(s) and citation(s) that support it.
-
-A change with neither a strong empirical anchor nor literature support is not allowed —
-go back to analysis or research. (Pure simplification/ablation is exempt.)
-
-**7. Snapshot / commit, then apply the change.**
-- *snapshots*: create `iter<N>/{code_snapshot,analysis,results}/`, copy every
-  `<editable_files>` into `code_snapshot/`, copy `schema.yaml` to `iter<N>/`, then apply
-  the change to the working files. *(For iteration 1, the snapshot is the baseline; the
-  change is applied at the END of iteration 1 for use in iteration 2.)*
-- *branches*: apply the change, then `git commit -am "<short description>"`.
-
-**8. Log to the ledgers. Do NOT commit them — leave untracked.**
+**7. Log to the ledgers. Do NOT commit them — leave untracked.**
 
 `results.tsv` (one tab-separated row):
 - *snapshots*: `<N>  <metric>  <status>  <analysis summary>  <literature basis>  <description>`
@@ -456,30 +491,41 @@ go back to analysis or research. (Pure simplification/ablation is exempt.)
 
 `<status>` ∈ {`keep`, `discard`, `crash`}. Use `0.000000` for the metric on crashes.
 `<literature_basis>` is a short cite (e.g. `Dosovitskiy 2020 ViT — warmup+strong aug`)
-or `none` if the change was empirical/simplification only.
+or `none` for empirical/simplification changes.
 
-`corpus.tsv`: ensure every finding considered this iteration has a row; when a prior
-lit-driven change's result is now known, **update its `result`** field
-(helped/no-effect/hurt) so the loop learns which sources pay off.
+`corpus.tsv`: set this iteration's lever finding to `implemented=y` and write its
+`result` now that the metric is known — `helped` / `no-effect` / `hurt` (a crash counts
+as `hurt`). This is how the loop learns which sources pay off and avoids re-trying
+failures (the 2c gate reads it).
 
-**9. Keep or revert** (this happens after the *next* run reveals the metric; track it):
+**8. Keep or revert** (in-iteration — the change ran this iteration):
 - **Improved** (per `<metric_direction>`): status `keep`; update current-best.
 - **Equal or worse / crash**: status `discard`/`crash`;
   *branches* `git reset --hard HEAD~1`; *snapshots* restore `<editable_files>` from
   `iter<N>/code_snapshot/`. Apply the simplicity criterion before logging `discard`.
 
-  If stuck (same ideas failing), you may rewind further — very sparingly. It is almost
-  always better to let analysis + literature surface a new angle.
+**Scope-preserving recovery.** If the change crashed/OOM'd, fix it with the *minimal*
+change that preserves the change's intent (e.g. OOM → reduce batch size + raise grad-
+accum to hold effective batch; not silently swapping the technique for a different one).
+Never mutate the experiment into something the plan didn't call for. Diagnose the real
+error; do not blind-retry the same thing.
 
-**10. Go to step 1** for the next iteration.
+If stuck (same ideas failing), you may rewind further — very sparingly. It is almost
+always better to let analysis + literature surface a new angle.
+
+**9. Go to step 1** for the next iteration.
 
 ---
 
 **NEVER STOP**: Once the loop has begun, do NOT pause to ask "should I continue?". The
-human may be asleep and expects you to work **indefinitely** until manually stopped. If
-you run out of ideas: think harder, re-read the in-scope files, mine `corpus.tsv` for
-kept-but-not-yet-tried findings, follow citation graphs deeper, raise `research_scale`
-for one hard question, or combine previous near-misses. The loop runs until interrupted.
+human may be asleep and expects you to work **indefinitely** until manually stopped. The
+workflow is a loop, not a checklist — a working result is the start of the next
+iteration, not the end. If you run out of ideas, **go back to the literature**: crawl
+citation graphs deeper to find papers you haven't read, read the methodology sections of
+recent work that cites your current approach, and try *combining* recipes from different
+papers. Also: re-read the in-scope files, mine `corpus.tsv` for queued keepers, re-read
+the training logs for clues, and combine previous near-misses. There is almost always a
+paper you haven't read yet. The loop runs until interrupted.
 
 ---
 
@@ -503,8 +549,34 @@ the dial, the contents of `literature_schema.json`, and the relevant analysis su
      b. need a paper's full method   → fulltext (HTML→LaTeX→PDF) of THAT paper
 4. EXPAND     <lit> cite (references / citations / recommend) → walk from an anchor
 ```
-For Level-1 questions, `<lit> ask` (Sonar) is a fast first pass to synthesize the
-landscape — then verify its citations through `search`/`fulltext`.
+
+**Tune the funnel to the level:**
+- **Level 1** (landscape): `<lit> ask` (Sonar) first for a fast synthesis with
+  citations, then `search` for survey/landmark papers, then `cite` to walk the graph to
+  recent downstream work. Verify Sonar's citations through `search`/`fulltext`.
+- **Level 2** (exact values): `snippet` first — it returns the exact passages with the
+  number you need — then `fulltext` on the one or two papers that matter.
+
+**Read methodology, not abstracts.** Triage on TLDR/abstract, but extract recipes from
+the **Methods/Experiments/Results** sections. Prefer recent papers with strong reported
+results, high citations, and reputable venues. **Attribute every finding to a specific
+reported result** ("dataset X + method Y → 85.3% on benchmark Z") — a recipe with no
+number behind it is weak evidence.
+
+**Evidence corroboration (high / x-high).** For a top candidate, use `<lit> bgpt` to
+pull structured experimental results / limitations and corroborate the finding's
+`reported_gain` and `has_ablation`.
+
+**Tool gotchas (verified — heed these):**
+- `cite`/`recommend` need a **Semantic Scholar** `paperId`. An **OpenAlex id will not
+  resolve** — for OpenAlex/DOI-sourced papers, call `cite "DOI:10.xxxx/..."` or
+  `cite "ARXIV:2010.11929"` (S2 accepts those prefixes).
+- `fulltext` HTML/LaTeX is **arXiv-only**. For a non-arXiv but **open-access** paper,
+  read its `pdf_url` (from `search`) via `fulltext --mode pdf <pdf_url>`. Paywalled
+  papers: rely on the abstract + `snippet`.
+- **S2 is globally rate-limited to ~1 req/s** (shared across all S2 calls and all
+  parallel subagents). Use **OpenAlex for breadth** (no such limit); reserve S2 for
+  relevance ranking, `snippet`, and `cite` where it is uniquely valuable.
 
 **Depth caps** (from the dial): at most `<rounds>` tool calls, read at most `<papers>`
 papers' full text, follow at most `<hops>` citation hops. Stop when caps are hit.
@@ -552,11 +624,14 @@ iter	<metric>	status	analysis_summary	literature_basis	description
 
 **`literature/corpus.tsv`** (tab-separated):
 ```
-iter	level	paper_id	title	relevance	verdict	implemented	result
-2	1	649def…	An Image is Worth 16x16 Words	high	keep	y	helped
-2	1	0b3f…	MLP-Mixer	med	reject	n	-
-3	2	a1c2…	Decoupled Weight Decay Regularization	high	keep	y	no-effect
+iter	level	paper_id	title	scope	relevance	verdict	implemented	result
+2	1	649def…	An Image is Worth 16x16 Words	vit	high	keep	y	helped
+2	1	0b3f…	MLP-Mixer	mlp	med	reject	n	-
+3	2	a1c2…	Decoupled Weight Decay Regularization	agnostic	high	keep	y	no-effect
+4	1	7d9e…	ConvNeXt blocks	cnn	low	keep	n	stale
 ```
+(Last row: a CNN-scoped keeper retired to `stale` after the architecture moved to ViT —
+drift retirement, step 2a. The `agnostic` weight-decay finding survives drift.)
 
 Do not commit `results.tsv` or `literature/` to git. Leave them untracked.
 
@@ -573,8 +648,8 @@ Do not commit `results.tsv` or `literature/` to git. Leave them untracked.
 - The sandbox must be self-contained — no `../` escapes.
 - A non-simplification change must have an empirical anchor **or** a literature basis;
   prefer both. Record the basis in `results.tsv`.
-- Never print or commit API keys. `keys` reports presence only. Keys live in the shared
-  global `~/.config/agent-loop-skills/keys.env`, outside any repo.
+- Never print or commit API keys. `keys` reports presence only. Keys live in `keys.env`
+  at the project root, which must stay gitignored.
 - When a literature tool returns `{"error","fallback"}`, fall back to WebSearch /
   WebFetch — never fabricate citations. Every cited paper must come from a real tool
   result you actually retrieved.

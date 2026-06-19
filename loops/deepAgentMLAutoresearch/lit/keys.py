@@ -1,8 +1,9 @@
 """Standardized API-key handling for agent-loop-skills.
 
-Keys live in ONE shared global file — ${XDG_CONFIG_HOME:-~/.config}/agent-loop-skills/
-keys.env — reused by every skill and every project. It lives outside any repo, so it
-can't be committed. Real OS env vars take precedence over the file.
+Keys live in one file at the PROJECT ROOT — ``<repo root>/keys.env`` (the nearest .git
+ancestor of the working directory, else the CWD) — shared by every skill in that
+project. It MUST be gitignored (it sits inside the repo). Real OS env vars take
+precedence over the file.
 
 This module is a drop-in standard: the ENGINE below is identical across skills; each
 skill edits only the KEYS registry. status() reports presence as booleans only — never
@@ -14,27 +15,50 @@ See docs/api-keys.md for the full convention.
 import os
 
 # === per-skill registry: edit ONLY this list when copying into another skill ==========
-# (env var name, "human description — where to get it")
+# (env var name, "verbose description: cost · what it enables · consequence if missing · where to get it")
 KEYS = [
-    ("S2_API_KEY", "Semantic Scholar (free, recommended) — "
-                   "https://www.semanticscholar.org/product/api#api-key-form"),
-    ("OPENALEX_EMAIL", "OpenAlex polite pool (free; just your email) — https://openalex.org"),
-    ("OPENROUTER_API_KEY", "Perplexity Sonar via OpenRouter (paid) — https://openrouter.ai/keys"),
-    ("BGPT_API_KEY", "bgpt.pro structured results (free 50, then paid) — https://bgpt.pro/mcp/"),
+    ("S2_API_KEY",
+     "Semantic Scholar | FREE, RECOMMENDED. Enables reliable semantic (SPECTER2) paper "
+     "search, full-text snippet search, and citation-graph traversal at 1 req/s. "
+     "Without it: S2 falls back to a saturated global shared pool (frequent 429s), so the "
+     "loop leans on OpenAlex + arXiv instead. "
+     "Get one: https://www.semanticscholar.org/product/api#api-key-form"),
+    ("OPENALEX_EMAIL",
+     "OpenAlex polite pool | FREE (just an email you control). Faster, more reliable "
+     "OpenAlex discovery and citation/recency filtering. "
+     "Without it: OpenAlex still works, on the slower shared anonymous pool. "
+     "Set to any email address."),
+    ("OPENROUTER_API_KEY",
+     "Perplexity Sonar via OpenRouter | PAID. Enables `ask` — fast Level-1 synthesis of "
+     "the landscape with citations. "
+     "Without it: `ask` is disabled and Level-1 questions fall back to built-in WebSearch. "
+     "Get one: https://openrouter.ai/keys"),
+    ("BGPT_API_KEY",
+     "bgpt.pro | FREE for 50 results, then PAID ($0.02/result). Enables `bgpt` — structured "
+     "experimental-result and limitations extraction for evidence-grading. "
+     "Without it: `bgpt` runs on the free tier until exhausted, then is disabled. "
+     "Get one: https://bgpt.pro/mcp/"),
 ]
 
 # === generic engine: identical across skills — do not edit ============================
 _HEADER = [
-    "# agent-loop-skills API keys (shared across all skills).",
+    "# agent-loop-skills API keys (shared across skills in this project).",
     "# Fill in the ones you want; blank/missing means that source degrades gracefully.",
-    "# Real environment variables override this file.",
+    "# Real environment variables override this file. KEEP THIS GITIGNORED.",
     "",
 ]
 
 
 def default_env_path():
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "agent-loop-skills", "keys.env")
+    """The project key file: keys.env at the nearest .git ancestor of the CWD, else CWD."""
+    d = os.getcwd()
+    while True:
+        if os.path.isdir(os.path.join(d, ".git")):
+            return os.path.join(d, "keys.env")
+        parent = os.path.dirname(d)
+        if parent == d:
+            return os.path.join(os.getcwd(), "keys.env")
+        d = parent
 
 
 def load_env_file(path=None):

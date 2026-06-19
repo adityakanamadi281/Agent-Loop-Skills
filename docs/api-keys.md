@@ -3,18 +3,18 @@
 Skills that call external APIs (literature search, web synthesis, etc.) all use the
 **same key convention** so a user sets each key once and every skill reuses it.
 
-## The shared global key file
+## The project key file
 
 ```
-~/.config/agent-loop-skills/keys.env        (honors $XDG_CONFIG_HOME)
+<repo root>/keys.env        (nearest .git ancestor of the working dir, else the CWD)
 ```
 
-- **One file, shared by every skill and project.** Set a key once; all skills see it.
-- **Outside any repo**, so it can never be committed. `0600` permissions.
+- **One file per project, shared by every skill in it.** Set a key once; all skills see it.
+- **Sits inside the repo, so it MUST be gitignored** (`keys.env`). `0600` permissions.
 - Plain `KEY=VALUE` lines; `#` comments; blank lines ignored.
 
 ```dotenv
-# agent-loop-skills API keys (shared across all skills).
+# agent-loop-skills API keys (shared across skills in this project).
 S2_API_KEY=xxxxxxxx
 OPENALEX_EMAIL=me@example.com
 OPENROUTER_API_KEY=
@@ -39,7 +39,7 @@ BGPT_API_KEY=
 2. `… keys --init` — create the file if absent and append slots for this skill's keys.
    Prints the path.
 3. Ask the user to **open the file and paste the keys they want**, then say when done.
-   In-session shortcut: `! $EDITOR ~/.config/agent-loop-skills/keys.env`.
+   In-session shortcut: `! $EDITOR ./keys.env`.
 4. `… keys` again — report live vs degraded tiers, and proceed. Never block on keys.
 
 ## Adopting the standard in a new skill

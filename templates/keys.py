@@ -1,11 +1,12 @@
 """Standard API-key handling for agent-loop-skills — DROP-IN TEMPLATE.
 
 Copy this file into any skill that needs API keys. Edit ONLY the KEYS registry below;
-leave the engine unchanged. All skills then share one global key file:
+leave the engine unchanged. All skills in a project then share one key file at the
+PROJECT ROOT:
 
-    ${XDG_CONFIG_HOME:-~/.config}/agent-loop-skills/keys.env
+    <repo root>/keys.env   (nearest .git ancestor of the CWD, else the CWD)
 
-It lives outside any repo (can't be committed), real OS env vars take precedence over
+It sits inside the repo, so it MUST be gitignored. Real OS env vars take precedence over
 it, and status() reports presence as booleans only — never the values — so onboarding
 never puts a secret in the conversation. See docs/api-keys.md for the convention.
 
@@ -26,16 +27,23 @@ KEYS = [
 
 # === generic engine: identical across skills — do not edit ============================
 _HEADER = [
-    "# agent-loop-skills API keys (shared across all skills).",
+    "# agent-loop-skills API keys (shared across skills in this project).",
     "# Fill in the ones you want; blank/missing means that source degrades gracefully.",
-    "# Real environment variables override this file.",
+    "# Real environment variables override this file. KEEP THIS GITIGNORED.",
     "",
 ]
 
 
 def default_env_path():
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "agent-loop-skills", "keys.env")
+    """The project key file: keys.env at the nearest .git ancestor of the CWD, else CWD."""
+    d = os.getcwd()
+    while True:
+        if os.path.isdir(os.path.join(d, ".git")):
+            return os.path.join(d, "keys.env")
+        parent = os.path.dirname(d)
+        if parent == d:
+            return os.path.join(os.getcwd(), "keys.env")
+        d = parent
 
 
 def load_env_file(path=None):

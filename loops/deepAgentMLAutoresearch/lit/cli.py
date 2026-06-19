@@ -83,8 +83,7 @@ def _build_parser():
     common.add_argument("--cache-dir", default=None,
                         help="on-disk cache dir (recommended: <sandbox>/literature/.cache)")
     common.add_argument("--env-file", default=None,
-                        help="key file to load (default: the shared global "
-                             "~/.config/agent-loop-skills/keys.env)")
+                        help="key file to load (default: keys.env at the project/repo root)")
 
     p = argparse.ArgumentParser(
         prog="lit_search",
