@@ -28,7 +28,8 @@ where every line can be reproduced from the dataset.
 ## 1. Resolve bindings (setup — once)
 
 If a `loop.run.yaml` exists, load it, confirm the values in one line, and skip to §2. Otherwise
-resolve each binding, then write `loop.run.yaml` so re-runs are non-interactive.
+resolve each binding, then write `loop.run.yaml` so re-runs are non-interactive (see
+`schema.example.yaml` for a commented template).
 
 **Detect host:** if `AskUserQuestion` is available you are in **Claude Code** — infer a likely value
 and present it as the recommended option. Otherwise ask each as a quoted plain-text prompt.
