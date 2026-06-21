@@ -84,6 +84,7 @@ plain-text prompts.
 
 ---
 
+
 ## 2. The loop
 
 The **rubric** (score each question 0–5 per axis):
