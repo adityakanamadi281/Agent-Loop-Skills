@@ -27,7 +27,8 @@ The cast and files (all in this folder):
   `schemas/peer_review.schema.json`.
 - `roles/scientific_writer.md` — the reviser; uses the lit tool.
 - `schemas/config.schema.json` — the resolved-bindings contract.
-- `tools/lit_search.py` + `tools/lit/` — the vendored **S2 + arXiv** retrieval backend.
+- the shared **`literature-search` skill** (`<lit>`) — the **S2 + arXiv** retrieval backend,
+  installed alongside this loop (not vendored here; see §0).
 
 Spawn-or-degrade: on Claude Code, spawn the judges / peer_reviewer / writer as real `Agent`
 subagents (the five judges in parallel); otherwise adopt each role inline. **You are the
@@ -50,16 +51,26 @@ buy a pass.
 
 ## 0. The literature toolchain (read once)
 
-All literature access goes through `tools/lit_search.py` — stdlib-only, no installs. Resolve
-once and reuse:
-- **`<skill_dir>`** — this folder. **`<lit_py>`** — `python3` (any ≥3.9).
-- **`<lit>`** — `<lit_py> <skill_dir>/tools/lit_search.py --cache-dir <sandbox_root>/literature/.cache`
+All literature access goes through the shared **`literature-search` skill** (`lit_search.py` over
+Semantic Scholar + arXiv) — stdlib-only, not a copy vendored here. Resolve once and reuse:
+- **`<lit_skill_dir>`** — where the `literature-search` skill is installed; after the repo install
+  step it sits as a **sibling** of this loop, e.g. `~/.claude/skills/literatureSearch/` (adjust per host).
+- **`<lit_py>`** — `python3` (any ≥3.9).
+- **`<lit>`** — `<lit_py> <lit_skill_dir>/lit_search.py`; append `--cache-dir <sandbox_root>/literature/.cache`
+  after the subcommand to reuse a cache.
 
 Subcommands (print JSON; on failure print `{"error","fallback"}` → fall back to WebSearch/WebFetch):
 `search` (discover), `snippet` (pinpoint a passage), `cite <paperId> --direction
 references|citations|recommend` (citation graph), `fulltext <arxivId>` (read a paper),
 `keys [--init]`. This is the **S2 + arXiv** stack; `S2_API_KEY` is free and recommended.
 Used by `scientific_writer` (ground new citations) and `peer_reviewer` (verify citations).
+
+**Check at setup whether the skill is installed** — probe `<lit_skill_dir>/lit_search.py`. If it is
+missing, do not silently fall back — tell the user and offer the choice:
+- **Install it** (recommended; citation grounding/verification depend on it) — the repo install step
+  (`cp -r agent-loop-skills/loops/* ~/.claude/skills/`, adjust per host), or just the one skill:
+  `cp -r agent-loop-skills/loops/literatureSearch ~/.claude/skills/`. Then re-resolve `<lit_skill_dir>`.
+- **Proceed without it** — use the host's WebSearch/WebFetch for retrieval/verification (degraded).
 
 ---
 
@@ -96,8 +107,9 @@ Record **`<sandbox_root>`** (default `./sandbox/`). **The loop only ever reads t
 writes copies under here — it never edits the user's files in place.**
 
 ### 1f. Literature key (the standard `keys.env` onboarding — see `docs/api-keys.md`)
-Smoke-test `<lit_py> <skill_dir>/tools/lit_search.py --help`. Then run the four-step flow:
-`<lit> keys` (check) → `tools/lit_search.py keys --init` (append the gitignored `keys.env` slot
+Resolve `<lit_skill_dir>` (the installed `literature-search` skill, §0) and smoke-test `<lit> --help`
+(if it fails, the skill is not installed — handle via §0's install-or-proceed). Then run the four-step
+flow: `<lit> keys` (check) → `<lit> keys --init` (append the gitignored `keys.env` slot
 at the project root) → ask the user to paste their free `S2_API_KEY` into the file themselves
 (`! $EDITOR ./keys.env`; "skip" is fine) → re-run `<lit> keys`, report presence + what's lost
 without it, and persist the tier (booleans only) to `config.yaml` under `literature_tiers`. The

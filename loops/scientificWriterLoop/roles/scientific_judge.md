@@ -5,7 +5,7 @@ citations. Output one object validated against `schemas/finding.schema.json` wit
 `"reviewer": "scientific_judge"`. Critique only.
 
 **Inputs:** the iter<N> `draft.md`, the dataset(s) (to check that stated numbers are real and
-reproducible), and the lit tool (`tools/lit_search.py`, S2 + arXiv) to check that citations
+reproducible), and the lit tool (`<lit>`, the shared `literature-search` skill, S2 + arXiv) to check that citations
 exist and support what they're attached to.
 
 ## What to examine

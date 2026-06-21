@@ -36,7 +36,8 @@ The cast and files (all in this folder):
 - `rubric.md` — the **fixed** grading rubric (the Judge never edits it).
 - `schemas/scholareval.schema.json` — the ScholarEval evaluation (example in `roles/ScholarEval.md`).
 - `schemas/verdict.schema.json` — the Judge's graded verdict (example in `roles/Judge.md`).
-- `lit_search.py` + `lit/` — the vendored **Semantic Scholar + arXiv** retrieval backend.
+- the shared **`literature-search` skill** (`<lit>`) — the **Semantic Scholar + arXiv** retrieval
+  backend, installed alongside this loop (not vendored here; see §0).
 
 Spawn-or-degrade: on Claude Code, spawn ScholarEval / Reviser as real `Agent` subagents;
 otherwise adopt each role inline. **You are the orchestrator** (and the Judge).
@@ -45,11 +46,12 @@ otherwise adopt each role inline. **You are the orchestrator** (and the Judge).
 
 ## 0. The literature toolchain (read once)
 
-All literature access goes through `lit_search.py` in this folder — stdlib-only, no installs.
-Resolve once and reuse:
-- **`<skill_dir>`** — this folder (contains `SKILL.md`, `lit_search.py`).
+All literature access goes through the shared **`literature-search` skill** (`lit_search.py` over
+Semantic Scholar + arXiv) — stdlib-only, not a copy vendored here. Resolve once and reuse:
+- **`<lit_skill_dir>`** — where the `literature-search` skill is installed; after the repo install step
+  it sits as a **sibling** of this loop, e.g. `~/.claude/skills/literatureSearch/` (adjust per host).
 - **`<lit_py>`** — `python3` (any ≥3.9 interpreter).
-- **`<lit>`** — `<lit_py> <skill_dir>/lit_search.py`. To reuse a cache across calls, append
+- **`<lit>`** — `<lit_py> <lit_skill_dir>/lit_search.py`. To reuse a cache across calls, append
   `--cache-dir <sandbox_root>/literature/.cache` **after the subcommand** (it is a per-subcommand flag,
   not global), e.g. `<lit> search "<q>" --cache-dir <sandbox_root>/literature/.cache`.
 
@@ -66,7 +68,17 @@ then fall back to your built-in **WebSearch/WebFetch**):
 
 This is the **S2 + arXiv stack** (per the paper's reliance on Semantic Scholar). `S2_API_KEY`
 is free and strongly recommended (snippet + cite are the two ScholarEval-defining moves); it
-degrades to the saturated keyless pool, then to WebSearch/WebFetch, if absent.
+degrades to the saturated keyless pool, then to WebSearch/WebFetch, if absent. See the
+`literature-search` skill's `SKILL.md` for the full key list.
+
+**Check at setup whether the skill is installed** — probe `<lit_skill_dir>/lit_search.py` (try the
+sibling-skill path, e.g. `~/.claude/skills/literatureSearch/`). If it is missing, do not silently fall
+back — tell the user and offer the choice:
+- **Install it** (recommended; ScholarEval's grounding depends on it) — the repo install step
+  (`cp -r agent-loop-skills/loops/* ~/.claude/skills/`, adjust per host), or just the one skill:
+  `cp -r agent-loop-skills/loops/literatureSearch ~/.claude/skills/`. Then re-resolve `<lit_skill_dir>`.
+- **Proceed without it** — use the host's WebSearch/WebFetch for all retrieval (degraded: no ranked
+  snippets or citation-graph expansion).
 
 ---
 
@@ -117,8 +129,10 @@ Record **`grade_weights`** = `w_s · w_c · w_e` (must sum to 1). Default **0.45
 Record **`<sandbox_root>`** (default `./sandbox/`).
 
 ### 1h. Resolve `<lit>` and smoke-test
-Set `<lit_py>=python3`; confirm `<lit_py> <skill_dir>/lit_search.py --help` works. If it
-fails, stop and report — the loop cannot ground itself without the helper.
+Resolve `<lit_skill_dir>` (the installed `literature-search` skill, §0) and set `<lit_py>=python3`;
+confirm `<lit> --help` works. If it fails, the skill is not installed — handle it via §0's
+install-or-proceed choice (install the `literature-search` skill, or proceed on WebSearch/WebFetch);
+do not silently continue as if grounding were available.
 
 ### 1i. Semantic Scholar key (the standard `keys.env` onboarding — see `docs/api-keys.md`)
 The one key this loop wants is **`S2_API_KEY`** (free): it makes `snippet` + `cite` — the two
@@ -139,7 +153,7 @@ every skill. Follow the four-step flow exactly:
    missing keys, never clobbers existing values). Confirm `keys.env` is gitignored first (it is
    in this repo) and add the line if a host project lacks it:
    ```
-   <lit_py> <skill_dir>/lit_search.py keys --init
+   <lit> keys --init
    ```
    It prints the file path.
 3. **Ask the user to fill it themselves** so the secret never enters this transcript:
