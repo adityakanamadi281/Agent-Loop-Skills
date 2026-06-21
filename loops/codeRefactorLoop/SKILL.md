@@ -50,7 +50,7 @@ infer a likely value for each binding and present it as the recommended option v
 - **`<budget>`** — max iterations (default 8). **`<patience>`** — stop after this many consecutive
   iterations with no improvement (default 3).
 
-Write `loop.run.yaml`:
+Write `loop.run.yaml` (see `schema.example.yaml` for a commented template):
 ```yaml
 editable_files: [code/messy_stats.py]
 test_cmd: "python3 -m unittest"
