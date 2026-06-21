@@ -25,6 +25,12 @@ A "failure" is an objective disagreement between the **target** (the system unde
 (technique) you label each input with** — so progress is measured in *distinct* failure modes, not
 raw counts.
 
+**This loop is only the `find` half of a `find → fix` adversarial setup.** It surfaces and
+catalogues failures; it **never patches the target**. On its own it produces a catalogue, not a
+hardened system. It is designed to be **paired with a separate coding agent that fixes the target**
+between runs — the attacker here and a fixer there form the full adversarial loop. See §5 for how the
+two halves fit together.
+
 > Scope: this is for testing systems you own or are explicitly authorized to test, to make them more
 > robust. Keep findings in service of fixing the target.
 
@@ -33,7 +39,8 @@ raw counts.
 ## 1. Resolve bindings (setup — once)
 
 If a `loop.run.yaml` exists, load it, confirm the values in one line, and skip to §2. Otherwise
-resolve each binding, then write `loop.run.yaml` so re-runs are non-interactive.
+resolve each binding, then write `loop.run.yaml` so re-runs are non-interactive (see
+`schema.example.yaml` for a commented template).
 
 **Detect host:** if `AskUserQuestion` is available you are in **Claude Code** — infer a likely value
 and present it as the recommended option. Otherwise ask each as a quoted plain-text prompt.
@@ -120,3 +127,24 @@ round	angle	tested	new_classes	total_classes
 - Keep findings oriented toward **fixing** the target; this is robustness testing of an authorized system.
 - The sandbox is self-contained — no `../` escapes beyond the bound `<sandbox_root>`.
 - Do not pause the loop to ask whether to continue; run until it goes dry or hits the budget.
+
+---
+
+## 5. Pairing with a fixer — the other half of the adversarial setup
+This skill is the **attacker**. By itself it is half a tool: it tells you *how* your system fails but
+leaves it unfixed. The intended full loop pairs it with a **coding agent that patches the target**, in
+three strictly separated phases:
+
+1. **Find** *(this loop)* — run against the **frozen** target → a catalogue of distinct failure
+   classes, each with a reproducible example and a suggested fix.
+2. **Fix** *(a separate coding agent)* — apply patches to the target to close those classes. This
+   happens **between** red-team runs, never inside one: the target is read-only ground truth for the
+   duration of a run, so mutating it mid-loop would break reproducibility and the class accounting.
+3. **Re-verify** *(a fresh `find` run)* — start a **new** red-team run against the patched target.
+   Confirm each previously-found class is closed, and watch for regressions — especially new
+   **over-blocks** an over-eager fix may introduce (this loop already hunts that direction).
+
+Repeat **find → fix → re-verify** until a fresh run stays dry. Keep the two agents **independent**:
+the attacker that wrote the catalogue should not also grade its own patch — a separate fixer (and a
+clean re-run for verification) preserves the adversarial separation of duties. This skill deliberately
+stops at the end of phase 1; the fix/re-verify orchestration lives outside it.
