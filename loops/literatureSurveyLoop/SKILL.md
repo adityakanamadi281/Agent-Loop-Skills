@@ -62,8 +62,9 @@ and offer the choice:
 ## 1. Resolve bindings (setup — once)
 
 If a `loop.run.yaml` exists, load it, confirm in one line, and skip to §2. Otherwise resolve each
-binding, then write `loop.run.yaml`. **Detect host:** `AskUserQuestion` available → Claude Code (infer +
-recommend); else ask as quoted plain-text prompts.
+binding, then write `loop.run.yaml` (see `schema.example.yaml` for a commented template).
+**Detect host:** `AskUserQuestion` available → Claude Code (infer + recommend); else ask as quoted
+plain-text prompts.
 
 - **`<question>`** — the survey question/topic (and any scope: years, sub-fields, inclusion criteria).
 - **`<eval_scale>`** — depth per round: `low` (2 queries · 0 fulltext · ~6 new sources cap), `medium`
