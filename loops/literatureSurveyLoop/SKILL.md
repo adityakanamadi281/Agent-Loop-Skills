@@ -28,9 +28,12 @@ literature **agrees, disagrees, and is silent**.
 
 ## 0. The literature toolchain (read once)
 
-All literature access goes through `tools/lit_search.py` (vendored, stdlib-only, no installs):
-- **`<skill_dir>`** — this folder. **`<lit_py>`** — `python3`.
-- **`<lit>`** — `<lit_py> <skill_dir>/tools/lit_search.py`. To reuse a cache across calls, append
+All literature access goes through the shared **`literature-search` skill** (`lit_search.py` over
+Semantic Scholar + arXiv) — stdlib-only, not a copy vendored here:
+- **`<lit_skill_dir>`** — where the `literature-search` skill is installed; after the repo install step
+  it sits as a **sibling** of this loop, e.g. `~/.claude/skills/literatureSearch/` (adjust per host).
+- **`<lit_py>`** — `python3`.
+- **`<lit>`** — `<lit_py> <lit_skill_dir>/lit_search.py`. To reuse a cache across calls, append
   `--cache-dir <sandbox_root>/literature/.cache` **after the subcommand** (it is a per-subcommand flag,
   not global), e.g. `<lit> search "<q>" --cache-dir <sandbox_root>/literature/.cache`.
 
@@ -45,13 +48,23 @@ All literature access goes through `tools/lit_search.py` (vendored, stdlib-only,
 On failure each prints `{"error","fallback"}` (exit non-zero) — then use **WebSearch/WebFetch** and tag
 that evidence `source:"web"`. `S2_API_KEY` (free) makes `snippet`/`cite` reliable; optional, degrades.
 
+**Check at setup whether the skill is installed** — probe `<lit_skill_dir>/lit_search.py`. Because this
+loop's whole method is literature retrieval, do not silently fall back if it is missing — tell the user
+and offer the choice:
+- **Install it** (strongly recommended for this loop) — the repo install step
+  (`cp -r agent-loop-skills/loops/* ~/.claude/skills/`, adjust per host), or just the one skill:
+  `cp -r agent-loop-skills/loops/literatureSearch ~/.claude/skills/`. Then re-resolve `<lit_skill_dir>`.
+- **Proceed without it** — the survey runs on the host's WebSearch/WebFetch only (substantially
+  degraded: no ranked snippets or citation-graph expansion).
+
 ---
 
 ## 1. Resolve bindings (setup — once)
 
 If a `loop.run.yaml` exists, load it, confirm in one line, and skip to §2. Otherwise resolve each
-binding, then write `loop.run.yaml`. **Detect host:** `AskUserQuestion` available → Claude Code (infer +
-recommend); else ask as quoted plain-text prompts.
+binding, then write `loop.run.yaml` (see `schema.example.yaml` for a commented template).
+**Detect host:** `AskUserQuestion` available → Claude Code (infer + recommend); else ask as quoted
+plain-text prompts.
 
 - **`<question>`** — the survey question/topic (and any scope: years, sub-fields, inclusion criteria).
 - **`<eval_scale>`** — depth per round: `low` (2 queries · 0 fulltext · ~6 new sources cap), `medium`
@@ -64,7 +77,7 @@ recommend); else ask as quoted plain-text prompts.
 - **`<min_new>`** — the saturation threshold: a round is "dry" if it adds fewer than this many *new,
   matrix-changing* sources (default 2).
 
-**S2 key onboarding (optional, never block):** `<lit> keys`; if absent, `… keys --init` (append-only
+**S2 key onboarding (optional, never block):** `<lit> keys`; if absent, `<lit> keys --init` (append-only
 `keys.env` at project root, gitignored) and ask the user to paste their free key (`! $EDITOR
 ./keys.env`) or "skip". Never ask for the secret in chat.
 

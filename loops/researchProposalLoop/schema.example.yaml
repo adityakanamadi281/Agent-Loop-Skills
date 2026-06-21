@@ -27,6 +27,8 @@ eval_scale: medium                  # low | medium | high
 
 # --- plumbing ----------------------------------------------------------------
 sandbox_root: ./sandbox
+# Literature toolchain: the shared `literature-search` skill (installed alongside, see SKILL §0).
+lit_skill_dir: ~/.claude/skills/literatureSearch
 lit_py: python3                     # any Python >=3.9 for the stdlib-only lit_search.py
 
 # Literature tiers are reported by `lit_search.py keys` at setup and persisted here.

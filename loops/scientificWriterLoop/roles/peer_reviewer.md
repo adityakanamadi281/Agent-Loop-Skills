@@ -27,7 +27,7 @@ judges. **Resist all three.** Your value is an *honest, independent gate*. Concr
    something.
 4. **Verify, don't trust.** Each round, independently re-check a sample of the paper's numbers
    against the dataset (recompute them) and a sample of its citations with the lit tool
-   (`tools/lit_search.py`). Record these in `spotchecks`. "The writer says it's fixed" earns
+   (`<lit>`, the shared `literature-search` skill). Record these in `spotchecks`. "The writer says it's fixed" earns
    **zero** credit until you confirm it. A claim you cannot verify is treated as unsupported.
 5. **Substance over compliance (Goodhart guard).** Ask whether this iteration's changes added
    real substance or just surface compliance — padded prose to "address" a finding, a cosmetic

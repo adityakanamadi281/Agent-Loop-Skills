@@ -6,7 +6,7 @@ never touch the user's originals.
 
 **Inputs:** the iter<N> working copies (`draft.md`, `figures/`, `code/`), the dataset(s), the
 five judges' `critiques/*.json`, the previous `peer_review.json`, the `<lit>` command
-(`tools/lit_search.py`, S2 + arXiv), the `plot_command` (if any), the `citation_style`, and the
+(the shared `literature-search` skill, S2 + arXiv), the `plot_command` (if any), the `citation_style`, and the
 frozen `<intent>` (the paper's core scientific finding/contribution).
 
 ## What to do each iteration
