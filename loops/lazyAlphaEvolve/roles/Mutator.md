@@ -24,16 +24,24 @@ blocks** against the child's `<editable_files>`:
 (replacement lines)
 >>>>>>> REPLACE
 ```
-(For a tiny file or a full redesign, you may rewrite the whole file instead.) Apply the edit to
-the files in **your child sandbox only** — never the repo or another program's dir. Keep changes
-self-consistent (if you reference a new config key, also add it).
+(For a tiny file or a full redesign, you may rewrite the whole file instead.) You may also
+**create new files** in your child sandbox if your approach needs them (e.g. a new module) — just
+import/wire them from the editable files. Work **only inside your child sandbox**: edit its copied
+files and add new ones freely, but **never modify any existing file outside it** (the repo, the
+harness, the data, other programs). Keep changes self-consistent (if you reference a new config key
+or module, also add it).
 
 ## 2. Cascade-evaluate (smoke → full)
-Run in your child sandbox (`cd <sandbox_path> && <entrypoint>`, against the read-only harness +
-shared data):
+Run from inside your child sandbox: `cd <sandbox_path> && <entrypoint>`. Your dir already has
+**real copies** of the harness + editable files (not symlinks), so `sys.path[0]` is your dir and
+your edited `model.py`/`dataset.py` are the ones that run.
 1. **Smoke**: a cheap run at the `smoke` budget. If its `<metric>` does **not** clear the gate
    (≥ the parent's smoke score), stop — return `status: smoke_dropped` (don't waste a full run).
 2. **Full**: otherwise run at the `full` budget and record `<metric>`.
+
+**Confirm your change took effect.** If your diff changed the architecture/data but the run's
+param count / loss curve is identical to the parent's, your code was shadowed (a symlinked harness)
+— do not report a phantom result; fix the dir to use real copies and re-run.
 
 ## 3. Return
 A result per `schemas/result.schema.json`:

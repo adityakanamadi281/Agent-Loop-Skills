@@ -33,8 +33,10 @@ The cast and files (all in this folder):
 
 ## 1. Resolve bindings (setup — do this once)
 
-**MANDATORY INTERACTIVE SETUP. Ask the questions below and wait for answers. By design the user
-fills in only a few values — keep it that way.**
+**MANDATORY INTERACTIVE SETUP. Ask every question below and wait for the user's explicit answer —
+do NOT infer or skip any.** The *evolutionary* config is kept to two core knobs (§1b–1c) plus an
+opt-in advanced branch (§1d) — but the **standard task bindings (§1a) are each required** and must
+be asked individually; they define the task and cannot be guessed.
 
 ### 1.0 Detect host
 `AskUserQuestion` available → **`<host>`** = `claude-code` or `other`. Host decides execution: on
@@ -49,11 +51,18 @@ Measure the hardware before sizing anything; record and report to the user:
   macOS check Apple GPU/MPS; else CPU-only → **`<accelerator>`**, **`<vram>`**, **`<gpu_count>`**.
 These drive the concurrency recommendation in §1c.
 
-### 1a. Standard bindings
-As in `standardMLAutoresearch`: **`<metric>`** + **`<metric_direction>`**; **`<run_cmd>`** /
-**`<entrypoint>`** (one training run = the evaluator `h`); **`<editable_files>`** (the program being
-evolved — never the eval harness); **`<sandbox_root>`**; **`<gate>`** + **`<budget>`** (per full
-run). No `iter_strategy` — this loop is sandbox-only (see §3).
+### 1a. Standard task bindings — ASK EACH, one at a time, and wait (do not infer or bundle)
+These define the task and **cannot be skipped**. Ask each explicitly (Claude Code: infer a
+recommended option and confirm via `AskUserQuestion`; Other: a quoted prompt):
+- **`<metric>`** + **`<metric_direction>`** — the scalar to optimize and whether to min/maximize.
+- **`<run_cmd>`** / **`<entrypoint>`** — the command for one training run (the evaluator `h`).
+- **`<editable_files>`** — **the program being evolved** (e.g. `model.py`, `config.yaml`); never the
+  eval harness or data. **You MUST ask this explicitly — it is the code that gets mutated; do not
+  assume or default it.** (Multi-select in Claude Code.)
+- **`<sandbox_root>`** — where `lae/` is created.
+- **`<gate>`** (`time`/`epochs`) + **`<budget>`** — the size of one full run.
+
+No `iter_strategy` — this loop is sandbox-only (see §3).
 
 ### 1b. CORE knob 1 — total budget
 **`<total_budget>`** = how much compute to spend = total **full** training runs (or wall-clock
@@ -100,10 +109,12 @@ per-axis percentile stats, and `leaderboard.md`. **You are the sole writer of al
 (Mutators only return results — no write races).
 
 **Niche computation (you do this, from a child's sandbox):**
-- **`complexity`** = trainable param count (fallback: LOC of its `<editable_files>`), **log10-scaled**.
-- **`diversity`** = the **average normalized edit distance** of its concatenated `<editable_files>`
-  to a random sample of `diversity_reference_size` programs from its island (vs the baseline if the
-  island is near-empty). Higher = more novel. (AlphaEvolve/OpenEvolve's diversity metric.)
+- **`complexity`** = trainable param count (fallback: total LOC of the program's code — the editable
+  files **plus any files it added**), **log10-scaled**.
+- **`diversity`** = the **average normalized edit distance** of the program's concatenated code (its
+  editable files + any added files) to a random sample of `diversity_reference_size` programs from
+  its island (vs the baseline if the island is near-empty). Higher = more novel.
+  (AlphaEvolve/OpenEvolve's diversity metric.)
 - Normalize each axis with **running ~5th/95th percentiles** (not raw min/max, so one outlier can't
   collapse the range): `scaled = clamp01((v − p5)/(p95 − p5))`; `bin = min(num_bins−1, int(scaled ×
   num_bins))`; `cell = (complexity_bin, diversity_bin)`. **Re-bin** existing elites when a percentile
@@ -119,7 +130,8 @@ for generation in 1..num_generations:                 # finite (= ceil(total_bud
     island       = round-robin over islands
     parent       = sample a parent elite from that island (seeded rule)
     inspirations = top `num_top` by metric + `num_diverse` most-diverse elites of that island
-    child_id, child_dir = new program dir; copy the parent's program into it
+    child_id, child_dir = new program dir; COPY the parent's program + harness code into it
+                          (real copies, NOT symlinks; symlink only the data dir) — see §3
   run the C Mutators in parallel (spawn-or-degrade), each with roles/Mutator.md, its parent code,
       inspirations, the parent's artifacts, its child_dir, and the smoke/full budgets:
       -> Mutator proposes a SEARCH/REPLACE diff, applies it in child_dir, cascade-evaluates,
@@ -151,12 +163,24 @@ elites. Resume from `archive.tsv` + `history.tsv` if interrupted.
 ---
 
 ## 3. Program sandboxes (sandbox-only — no branches)
-A parallel population doesn't map onto git branches, so every program is a **self-contained dir**
-`<sandbox_root>/lae/programs/<child_id>/` holding **copies of `<editable_files>`** + its run log +
-`metrics.json`/artifacts; the archive references it by id.
-- A child is made by **copying the parent's dir**, applying the diff to the copy, and **evaluating in
-  that dir** (`cd <child_dir> && <entrypoint>`) against the **read-only harness** and **shared
-  read-only data** (referenced by path/symlink — never duplicated, never edited).
+A parallel population doesn't map onto git branches, so every program is a **self-contained,
+fully-runnable dir** `<sandbox_root>/lae/programs/<child_id>/`; the archive references it by id.
+- **Build the child dir by COPYING real files** (not symlinks): the parent's `<editable_files>`
+  (then apply the diff) **and the harness/entrypoint code it imports** (e.g. `train.py` and any
+  non-editable local modules). **Symlink ONLY large read-only data** (data isn't imported, so a
+  symlink is safe for it) — or point the config's data path at the shared absolute location.
+- Evaluate **from inside the child dir**: `cd <child_dir> && <entrypoint>`.
+- **CRITICAL — never symlink the entrypoint or any imported `.py`.** Python resolves a symlinked
+  script's `__file__` to the link *target*, so `sys.path[0]` becomes the original directory and the
+  child's `model.py`/`dataset.py` are **silently shadowed by the baselines** — the child trains the
+  unmodified baseline and every architecture/data mutation becomes a no-op (tell-tale: *identical
+  loss curves across different "architectures"*). Copy the harness so the child dir is `sys.path[0]`.
+  (Equivalent safe alternative: `cd <child_dir> && python -m <entrypoint_module>`, which forces
+  `sys.path[0] = cwd`.)
+- **Isolation sanity gate (do this):** confirm each child actually ran *its own* code before placing
+  it — the harness should log the model's **param count / a code fingerprint**, and the controller
+  flags any child whose code changed but whose loss curve / metric is identical to its parent's
+  (that means the harness shadowed it). Do not place a shadowed result; fix the sandbox first.
 - The **repo working tree is never mutated**, so parallel children are isolated and safe. Lineage is
   tracked by `parent_id` in `archive.tsv`/`history.tsv`.
 
@@ -180,8 +204,11 @@ ranked by `metric`. Do not commit `lae/` to git; leave it untracked.
 ---
 
 ## 5. Hard constraints (never violate)
-- A child edits **only its own `lae/programs/<child_id>/` copy** of `<editable_files>`. Never the
-  repo working tree, the harness, the data, or another program's dir.
+- A child works **only inside its own `lae/programs/<child_id>/` dir**: it may edit the copied
+  `<editable_files>` **and create new files there** (e.g. a new module its approach needs). It must
+  **never modify any existing file outside that dir** — the repo working tree, the read-only
+  harness, the data, and other programs' dirs are all out-of-bounds. (New files = fine;
+  out-of-bounds edits = forbidden.)
 - **The controller is the sole writer** of `archive.tsv`, `history.tsv`, `leaderboard.md`.
 - Concurrency `C` comes from the §1.0b probe + the user's confirmation — never assume the box; pin
   one child per GPU on multi-GPU; if a run OOMs/thrashes, lower `C` and say so (don't rewrite a
@@ -190,4 +217,7 @@ ranked by `metric`. Do not commit `lae/` to git; leave it untracked.
 - Stop at `<total_budget>`; reserve budget for the final synthesis. A child that overruns its gate
   is killed and recorded as `crash`.
 - Mutators compute nothing about the archive; the controller derives every niche and writes every log.
+- **Never symlink the entrypoint or any imported `.py` into a child dir** (it shadows the child's
+  code with the baseline via `sys.path[0]`). Copy harness code; symlink only data. Verify each child
+  ran its own code (the isolation sanity gate, §3) before placing it.
 - Keep setup to the two core knobs unless the user opts into the advanced branch (§1d).
