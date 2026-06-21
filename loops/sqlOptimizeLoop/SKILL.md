@@ -1,5 +1,5 @@
 ---
-name: query-optimize-loop
+name: sql-optimize-loop
 description: >
   Use when the user wants to iteratively speed up a slow SQL query without changing its results.
   Each iteration rewrites the query or adds an index, benchmarks it against a copy of the database,
@@ -11,7 +11,7 @@ metadata:
   version: "0.1.0"
 ---
 
-# Query Optimize Loop
+# SQL Optimize Loop
 
 An **evaluator-optimizer** loop. The artifact is a SQL query (and, optionally, a set of indexes);
 the feedback signal is two-part: the query must return the **same result-set** as the original (a
