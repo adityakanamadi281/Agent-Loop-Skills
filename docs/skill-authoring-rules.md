@@ -194,7 +194,8 @@ Three tiers, handled differently (K-Dense-confirmed). **A skill never ships or d
 **API keys.** Skills that call external APIs share one gitignored `keys.env` at the project root (all
 keys optional, presence read as booleans, never pasted into chat). The installed reference
 implementation is the `literature-search` skill (`<lit> keys --init`); a new skill that needs its own
-keys copies `templates/keys.py` into its `tools/`. See [`api-keys.md`](api-keys.md) — an authoring
+keys copies the `literature-search` skill's `tools/lit/keys.py` into its `tools/`. See
+[`api-keys.md`](api-keys.md) — an authoring
 reference; an installed `SKILL.md` reaches the convention through the sibling skill, never via `docs/`.
 
 ## Testing: eval-driven, Sonnet-run

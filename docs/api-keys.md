@@ -50,8 +50,9 @@ The `literature-search` skill exposes this as `<lit> keys [--init]`; a skill wit
 
 ## Adopting the convention in a new skill
 
-1. Copy [`../templates/keys.py`](../templates/keys.py) into the skill's `tools/` (mirroring
-   `literature-search/tools/lit/keys.py`, the reference implementation).
+1. Copy the reference implementation
+   [`../loops/literature-search/tools/lit/keys.py`](../loops/literature-search/tools/lit/keys.py) into
+   the new skill's `tools/`.
 2. Edit only the `KEYS` registry — the `(ENV_VAR_NAME, "description — where to get it")` list for that
    skill's services. Leave the engine untouched.
 3. In the skill's CLI: default `--env-file` to `keys.default_env_path()`, call
